@@ -8,7 +8,7 @@
 ## ⚡ One-Line Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/danjarosz/podman-dev-stacks/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Rzemieslnik-Programowania/podman-dev-stacks/main/install.sh | bash
 ```
 
 That's it. The installer will:
@@ -120,14 +120,14 @@ podman-dev-stacks/
 ### Option A — One-liner (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/danjarosz/podman-dev-stacks/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Rzemieslnik-Programowania/podman-dev-stacks/main/install.sh | bash
 source ~/.bashrc   # or ~/.zshrc
 ```
 
 ### Option B — Manual clone
 
 ```bash
-git clone https://github.com/danjarosz/podman-dev-stacks.git
+git clone https://github.com/Rzemieslnik-Programowania/podman-dev-stacks.git
 cd podman-dev-stacks
 chmod +x scripts/*.sh
 ./scripts/pull-images.sh
@@ -591,7 +591,7 @@ git init
 git add .
 git commit -m "Initial commit"
 git branch -M main
-git remote add origin https://github.com/danjarosz/podman-dev-stacks.git
+git remote add origin https://github.com/Rzemieslnik-Programowania/podman-dev-stacks.git
 git push -u origin main
 ```
 
@@ -600,8 +600,8 @@ git push -u origin main
 In `install.sh`, update these two lines with your actual GitHub username:
 
 ```bash
-REPO_URL="https://github.com/danjarosz/podman-dev-stacks.git"
-RAW_URL="https://raw.githubusercontent.com/danjarosz/podman-dev-stacks/main"
+REPO_URL="https://github.com/Rzemieslnik-Programowania/podman-dev-stacks.git"
+RAW_URL="https://raw.githubusercontent.com/Rzemieslnik-Programowania/podman-dev-stacks/main"
 ```
 
 Also update the one-liner URL in `README.md`.
@@ -617,7 +617,7 @@ git push
 ### 3. Your one-liner is live
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/danjarosz/podman-dev-stacks/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Rzemieslnik-Programowania/podman-dev-stacks/main/install.sh | bash
 ```
 
 Share this URL — anyone with Podman installed can run it and have the full toolkit in seconds.

@@ -4,11 +4,11 @@
 # =============================================================================
 # Run this directly from GitHub:
 #
-#   curl -fsSL https://raw.githubusercontent.com/danjarosz/podman-dev-stacks/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Rzemieslnik-Programowania/podman-dev-stacks/main/install.sh | bash
 #
 # Or with options:
 #
-#   curl -fsSL https://raw.githubusercontent.com/danjarosz/podman-dev-stacks/main/install.sh | bash -s -- --dir ~/.local/podman-dev-stacks --no-pull
+#   curl -fsSL https://raw.githubusercontent.com/Rzemieslnik-Programowania/podman-dev-stacks/main/install.sh | bash -s -- --dir ~/.local/podman-dev-stacks --no-pull
 #
 # Options:
 #   --dir <path>   Install location (default: ~/podman-dev-stacks)
@@ -35,8 +35,8 @@ step()    { echo -e "\n${BOLD}──── $* ────${RESET}"; }
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 INSTALL_DIR="${HOME}/podman-dev-stacks"
-REPO_URL="https://github.com/danjarosz/podman-dev-stacks.git"
-RAW_URL="https://raw.githubusercontent.com/danjarosz/podman-dev-stacks/main"
+REPO_URL="https://github.com/Rzemieslnik-Programowania/podman-dev-stacks.git"
+RAW_URL="https://raw.githubusercontent.com/Rzemieslnik-Programowania/podman-dev-stacks/main"
 DO_PULL=true
 DO_PATH=true
 
