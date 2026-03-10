@@ -34,10 +34,10 @@ BOLD='\033[1m'
 RESET='\033[0m'
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-log()     { printf '%b\n' "${CYAN}${BOLD}[INFO]${RESET}  $*" >&2; }
-success() { printf '%b\n' "${GREEN}${BOLD}[OK]${RESET}    $*" >&2; }
-warn()    { printf '%b\n' "${YELLOW}${BOLD}[WARN]${RESET}  $*" >&2; }
-error()   { printf '%b\n' "${RED}${BOLD}[ERROR]${RESET} $*" >&2; }
+log()     { printf '%b%s\n' "${CYAN}${BOLD}[INFO]${RESET}  " "$*" >&2; }
+success() { printf '%b%s\n' "${GREEN}${BOLD}[OK]${RESET}    " "$*" >&2; }
+warn()    { printf '%b%s\n' "${YELLOW}${BOLD}[WARN]${RESET}  " "$*" >&2; }
+error()   { printf '%b%s\n' "${RED}${BOLD}[ERROR]${RESET} " "$*" >&2; }
 
 section() {
   echo ""
@@ -158,6 +158,11 @@ declare -a SELECTED_LIST=()
 # Populated by show_force_remove_menu(); images confirmed for force removal
 declare -a FORCE_REMOVE_LIST=()
 
+# Visible images for interactive mode (filtered by install/remove state)
+VISIBLE_IMAGE_REFS=()
+declare -A IMAGE_VISIBLE
+declare -A IMAGE_VISIBLE_CATS
+
 _build_image_index() {
   ALL_IMAGE_REFS=()
   local _bii_cat _bii_arr_name _bii_entry _bii_image _bii_label
@@ -174,21 +179,77 @@ _build_image_index() {
   done
 }
 
+build_visible_list() {
+  VISIBLE_IMAGE_REFS=()
+  IMAGE_VISIBLE=()
+  IMAGE_VISIBLE_CATS=()
+
+  # Determine which categories are active
+  local -a _bvl_active_cats=()
+  if [[ -n "$CATEGORIES_FILTER" ]]; then
+    local -a _bvl_filter_cats
+    IFS=',' read -ra _bvl_filter_cats <<< "$CATEGORIES_FILTER"
+    local _bvl_f _bvl_c
+    for _bvl_f in "${_bvl_filter_cats[@]}"; do
+      _bvl_f="${_bvl_f#"${_bvl_f%%[! ]*}"}"
+      _bvl_f="${_bvl_f%"${_bvl_f##*[! ]}"}"
+      for _bvl_c in "${CATEGORY_NAMES[@]}"; do
+        if [[ "$_bvl_f" == "$_bvl_c" ]]; then
+          _bvl_active_cats+=("$_bvl_c")
+          break
+        fi
+      done
+    done
+  else
+    _bvl_active_cats=("${CATEGORY_NAMES[@]}")
+  fi
+
+  local _bvl_cat _bvl_arr_name _bvl_entry _bvl_image _bvl_exists
+  for _bvl_cat in "${_bvl_active_cats[@]}"; do
+    _bvl_arr_name="IMAGES_${_bvl_cat^^}"
+    local -n _bvl_arr="$_bvl_arr_name"
+    for _bvl_entry in "${_bvl_arr[@]}"; do
+      _bvl_image="${_bvl_entry%%|*}"
+      _bvl_exists=false
+      if podman image exists "$_bvl_image" 2>/dev/null; then
+        _bvl_exists=true
+      fi
+      # Install mode: show images NOT present locally
+      # Remove mode: show images present locally
+      if [[ "$MODE" == "install" && "$_bvl_exists" == false ]] ||
+         [[ "$MODE" == "remove" && "$_bvl_exists" == true ]]; then
+        VISIBLE_IMAGE_REFS+=("$_bvl_image")
+        IMAGE_VISIBLE["$_bvl_image"]=1
+        IMAGE_VISIBLE_CATS["$_bvl_cat"]=1
+      fi
+    done
+    unset -n _bvl_arr
+  done
+}
+
 init_selection() {
   _build_image_index
-  for ref in "${ALL_IMAGE_REFS[@]}"; do
-    IMAGE_SELECTED["$ref"]="1"
+  local _is_ref
+  for _is_ref in "${ALL_IMAGE_REFS[@]}"; do
+    IMAGE_SELECTED["$_is_ref"]="0"
+  done
+}
+
+_select_all_refs() {
+  local _sar_ref
+  for _sar_ref in "${ALL_IMAGE_REFS[@]}"; do
+    IMAGE_SELECTED["$_sar_ref"]="1"
   done
 }
 
 select_all() {
-  for ref in "${ALL_IMAGE_REFS[@]}"; do
+  for ref in "${VISIBLE_IMAGE_REFS[@]}"; do
     IMAGE_SELECTED["$ref"]="1"
   done
 }
 
 unselect_all() {
-  for ref in "${ALL_IMAGE_REFS[@]}"; do
+  for ref in "${VISIBLE_IMAGE_REFS[@]}"; do
     IMAGE_SELECTED["$ref"]="0"
   done
 }
@@ -207,14 +268,21 @@ toggle_category() {
   local _tc_arr_name="IMAGES_${_tc_cat^^}"
   local -n _tc_arr="$_tc_arr_name"
 
-  local _tc_all_selected=true _tc_entry _tc_image
+  local _tc_all_selected=true _tc_entry _tc_image _tc_has_visible=false
   for _tc_entry in "${_tc_arr[@]}"; do
     _tc_image="${_tc_entry%%|*}"
+    [[ -v IMAGE_VISIBLE["$_tc_image"] ]] || continue
+    _tc_has_visible=true
     if [[ "${IMAGE_SELECTED[$_tc_image]}" == "0" ]]; then
       _tc_all_selected=false
       break
     fi
   done
+
+  if [[ "$_tc_has_visible" == false ]]; then
+    unset -n _tc_arr
+    return
+  fi
 
   local _tc_new_val="1"
   if [[ "$_tc_all_selected" == true ]]; then
@@ -223,6 +291,7 @@ toggle_category() {
 
   for _tc_entry in "${_tc_arr[@]}"; do
     _tc_image="${_tc_entry%%|*}"
+    [[ -v IMAGE_VISIBLE["$_tc_image"] ]] || continue
     IMAGE_SELECTED["$_tc_image"]="$_tc_new_val"
   done
   unset -n _tc_arr
@@ -230,7 +299,7 @@ toggle_category() {
 
 count_selected() {
   local count=0
-  for ref in "${ALL_IMAGE_REFS[@]}"; do
+  for ref in "${VISIBLE_IMAGE_REFS[@]}"; do
     if [[ "${IMAGE_SELECTED[$ref]}" == "1" ]]; then
       ((count++)) || true
     fi
@@ -239,6 +308,15 @@ count_selected() {
 }
 
 get_selected_images() {
+  SELECTED_LIST=()
+  for ref in "${VISIBLE_IMAGE_REFS[@]}"; do
+    if [[ "${IMAGE_SELECTED[$ref]}" == "1" ]]; then
+      SELECTED_LIST+=("$ref")
+    fi
+  done
+}
+
+get_all_selected_images() {
   SELECTED_LIST=()
   for ref in "${ALL_IMAGE_REFS[@]}"; do
     if [[ "${IMAGE_SELECTED[$ref]}" == "1" ]]; then
@@ -371,7 +449,10 @@ apply_category_filter() {
     return
   fi
 
-  unselect_all
+  local _acf_ref
+  for _acf_ref in "${ALL_IMAGE_REFS[@]}"; do
+    IMAGE_SELECTED["$_acf_ref"]="0"
+  done
 
   local -a _acf_cats
   IFS=',' read -ra _acf_cats <<< "$CATEGORIES_FILTER"
@@ -438,11 +519,9 @@ show_main_menu() {
 # ── Image selection menu ──────────────────────────────────────────────────────
 show_image_selection_menu() {
   local _sim_mode_label="$1"
-  local _sim_keys_hint
-  _sim_keys_hint="$(IFS='/'; echo "${CATEGORY_KEYS[*]}")"
 
   while true; do
-    local _sim_total="${#ALL_IMAGE_REFS[@]}"
+    local _sim_total="${#VISIBLE_IMAGE_REFS[@]}"
     local _sim_selected
     _sim_selected="$(count_selected)"
 
@@ -451,6 +530,7 @@ show_image_selection_menu() {
     echo ""
 
     local _sim_num=0 _sim_idx _sim_cat _sim_title _sim_key _sim_arr_name _sim_entry _sim_image _sim_label _sim_mark
+    local -a _sim_visible_keys=()
     for _sim_idx in "${!CATEGORY_NAMES[@]}"; do
       _sim_cat="${CATEGORY_NAMES[$_sim_idx]}"
       _sim_title="${CATEGORY_TITLES[$_sim_idx]}"
@@ -458,11 +538,18 @@ show_image_selection_menu() {
       _sim_arr_name="IMAGES_${_sim_cat^^}"
       local -n _sim_arr="$_sim_arr_name"
 
+      if [[ ! -v IMAGE_VISIBLE_CATS["$_sim_cat"] ]]; then
+        unset -n _sim_arr
+        continue
+      fi
+
+      _sim_visible_keys+=("$_sim_key")
       echo -e "  ${BOLD}${_sim_title}${RESET}  (toggle: ${CYAN}${_sim_key}${RESET})"
 
       for _sim_entry in "${_sim_arr[@]}"; do
-        ((_sim_num++)) || true
         _sim_image="${_sim_entry%%|*}"
+        [[ -v IMAGE_VISIBLE["$_sim_image"] ]] || continue
+        ((_sim_num++)) || true
         _sim_label="${_sim_entry##*|}"
         _sim_mark="[ ]"
         if [[ "${IMAGE_SELECTED[$_sim_image]}" == "1" ]]; then
@@ -474,6 +561,10 @@ show_image_selection_menu() {
       echo ""
     done
 
+    local _sim_keys_hint _sim_old_ifs="$IFS"
+    IFS='/'
+    _sim_keys_hint="${_sim_visible_keys[*]}"
+    IFS="$_sim_old_ifs"
     echo -e "  Commands: ${CYAN}1-${_sim_total}${RESET} toggle | ${CYAN}a${RESET} select all | ${CYAN}n${RESET} unselect all | ${CYAN}${_sim_keys_hint}${RESET} toggle category | ${CYAN}c${RESET} confirm | ${CYAN}x${RESET} cancel"
     echo ""
 
@@ -495,8 +586,8 @@ show_image_selection_menu() {
       i) toggle_category "cicd" ;;
       r) toggle_category "runtimes" ;;
       *)
-        if [[ "$_sim_input" =~ ^[0-9]+$ ]] && (( _sim_input >= 1 && _sim_input <= ${#ALL_IMAGE_REFS[@]} )); then
-          local _sim_ref="${ALL_IMAGE_REFS[$((_sim_input - 1))]}"
+        if [[ "$_sim_input" =~ ^[0-9]+$ ]] && (( _sim_input >= 1 && _sim_input <= ${#VISIBLE_IMAGE_REFS[@]} )); then
+          local _sim_ref="${VISIBLE_IMAGE_REFS[$((_sim_input - 1))]}"
           toggle_image "$_sim_ref"
         else
           warn "Invalid input: $_sim_input"
@@ -725,6 +816,12 @@ do_install() {
 
   section "Image Selection"
 
+  build_visible_list
+  if [[ "${#VISIBLE_IMAGE_REFS[@]}" -eq 0 ]]; then
+    log "No images to install — all registry images are already present locally."
+    return
+  fi
+
   if ! show_image_selection_menu "install"; then
     log "Image selection cancelled."
     return
@@ -769,6 +866,12 @@ do_install() {
 # ── Remove action ─────────────────────────────────────────────────────────────
 do_remove() {
   section "Image Selection (Remove)"
+
+  build_visible_list
+  if [[ "${#VISIBLE_IMAGE_REFS[@]}" -eq 0 ]]; then
+    log "No installed images to remove."
+    return
+  fi
 
   if ! show_image_selection_menu "remove"; then
     log "Image selection cancelled."
@@ -839,7 +942,7 @@ do_remove() {
 do_remove_noninteractive() {
   section "Removing Images (non-interactive)"
 
-  get_selected_images
+  get_all_selected_images
   local count="${#SELECTED_LIST[@]}"
 
   if [[ "$count" -eq 0 ]]; then
@@ -891,9 +994,10 @@ main() {
   show_banner
   check_prerequisites
   init_selection
-  apply_category_filter
 
   if ! resolve_tty; then
+    _select_all_refs
+    apply_category_filter
     if [[ "$MODE" == "remove" ]]; then
       do_remove_noninteractive
     else
@@ -923,13 +1027,11 @@ main() {
           do_install
           # Reset selection for potential next action
           init_selection
-          apply_category_filter
           MODE=""
           ;;
         remove)
           do_remove
           init_selection
-          apply_category_filter
           MODE=""
           ;;
         "")
