@@ -184,6 +184,13 @@ build_visible_list() {
   IMAGE_VISIBLE=()
   IMAGE_VISIBLE_CATS=()
 
+  # Query local Podman store once (avoids N forks of `podman image exists`)
+  local -A _bvl_local_images=()
+  local _bvl_line
+  while IFS= read -r _bvl_line; do
+    [[ -n "$_bvl_line" ]] && _bvl_local_images["$_bvl_line"]=1
+  done < <(podman images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null)
+
   # Determine which categories are active
   local -a _bvl_active_cats=()
   if [[ -n "$CATEGORIES_FILTER" ]]; then
@@ -204,14 +211,23 @@ build_visible_list() {
     _bvl_active_cats=("${CATEGORY_NAMES[@]}")
   fi
 
-  local _bvl_cat _bvl_arr_name _bvl_entry _bvl_image _bvl_exists
+  local _bvl_cat _bvl_arr_name _bvl_entry _bvl_image _bvl_exists _bvl_canonical _bvl_path
   for _bvl_cat in "${_bvl_active_cats[@]}"; do
     _bvl_arr_name="IMAGES_${_bvl_cat^^}"
     local -n _bvl_arr="$_bvl_arr_name"
     for _bvl_entry in "${_bvl_arr[@]}"; do
       _bvl_image="${_bvl_entry%%|*}"
+      # Normalize docker.io short names to canonical form (docker.io/X:T → docker.io/library/X:T)
+      # so they match podman's output format
+      _bvl_canonical="$_bvl_image"
+      if [[ "$_bvl_image" == docker.io/* ]]; then
+        _bvl_path="${_bvl_image#docker.io/}"
+        if [[ "$_bvl_path" != */* ]]; then
+          _bvl_canonical="docker.io/library/${_bvl_path}"
+        fi
+      fi
       _bvl_exists=false
-      if podman image exists "$_bvl_image" 2>/dev/null; then
+      if [[ -v _bvl_local_images["$_bvl_canonical"] ]] || [[ -v _bvl_local_images["$_bvl_image"] ]]; then
         _bvl_exists=true
       fi
       # Install mode: show images NOT present locally
@@ -243,14 +259,16 @@ _select_all_refs() {
 }
 
 select_all() {
-  for ref in "${VISIBLE_IMAGE_REFS[@]}"; do
-    IMAGE_SELECTED["$ref"]="1"
+  local _sa_ref
+  for _sa_ref in "${VISIBLE_IMAGE_REFS[@]}"; do
+    IMAGE_SELECTED["$_sa_ref"]="1"
   done
 }
 
 unselect_all() {
-  for ref in "${VISIBLE_IMAGE_REFS[@]}"; do
-    IMAGE_SELECTED["$ref"]="0"
+  local _ua_ref
+  for _ua_ref in "${ALL_IMAGE_REFS[@]}"; do
+    IMAGE_SELECTED["$_ua_ref"]="0"
   done
 }
 
@@ -298,9 +316,10 @@ toggle_category() {
 }
 
 count_selected() {
+  local _cs_ref
   local count=0
-  for ref in "${VISIBLE_IMAGE_REFS[@]}"; do
-    if [[ "${IMAGE_SELECTED[$ref]}" == "1" ]]; then
+  for _cs_ref in "${VISIBLE_IMAGE_REFS[@]}"; do
+    if [[ "${IMAGE_SELECTED[$_cs_ref]}" == "1" ]]; then
       ((count++)) || true
     fi
   done
@@ -309,18 +328,20 @@ count_selected() {
 
 get_selected_images() {
   SELECTED_LIST=()
-  for ref in "${VISIBLE_IMAGE_REFS[@]}"; do
-    if [[ "${IMAGE_SELECTED[$ref]}" == "1" ]]; then
-      SELECTED_LIST+=("$ref")
+  local _gsi_ref
+  for _gsi_ref in "${VISIBLE_IMAGE_REFS[@]}"; do
+    if [[ "${IMAGE_SELECTED[$_gsi_ref]}" == "1" ]]; then
+      SELECTED_LIST+=("$_gsi_ref")
     fi
   done
 }
 
 get_all_selected_images() {
   SELECTED_LIST=()
-  for ref in "${ALL_IMAGE_REFS[@]}"; do
-    if [[ "${IMAGE_SELECTED[$ref]}" == "1" ]]; then
-      SELECTED_LIST+=("$ref")
+  local _gasi_ref
+  for _gasi_ref in "${ALL_IMAGE_REFS[@]}"; do
+    if [[ "${IMAGE_SELECTED[$_gasi_ref]}" == "1" ]]; then
+      SELECTED_LIST+=("$_gasi_ref")
     fi
   done
 }
@@ -612,8 +633,9 @@ show_confirmation() {
   echo ""
   echo -e "${BOLD}The following ${count} image(s) will be ${mode_label}:${RESET}"
   echo ""
-  for ref in "${SELECTED_LIST[@]}"; do
-    echo "  - ${IMAGE_LABELS[$ref]} ($ref)"
+  local _sc_ref
+  for _sc_ref in "${SELECTED_LIST[@]}"; do
+    echo "  - ${IMAGE_LABELS[$_sc_ref]} ($_sc_ref)"
   done
   echo ""
 
@@ -836,12 +858,13 @@ do_install() {
   local pulled=0
   local skipped=0
   local failed=0
+  local _di_ref _di_label _di_rc
 
-  for ref in "${SELECTED_LIST[@]}"; do
-    local label="${IMAGE_LABELS[$ref]}"
-    local rc=0
-    pull_single_image "$ref" "$label" || rc=$?
-    case "$rc" in
+  for _di_ref in "${SELECTED_LIST[@]}"; do
+    _di_label="${IMAGE_LABELS[$_di_ref]}"
+    _di_rc=0
+    pull_single_image "$_di_ref" "$_di_label" || _di_rc=$?
+    case "$_di_rc" in
       0) ((pulled++)) || true ;;
       1) ((skipped++)) || true ;;
       2) ((failed++)) || true ;;
@@ -889,15 +912,16 @@ do_remove() {
   local skipped_in_use=0
   local failed=0
   local IN_USE_IMAGES=()
+  local _dr_ref _dr_label _dr_rc
 
-  for ref in "${SELECTED_LIST[@]}"; do
-    local label="${IMAGE_LABELS[$ref]}"
-    local rc=0
-    remove_single_image "$ref" "$label" || rc=$?
-    case "$rc" in
+  for _dr_ref in "${SELECTED_LIST[@]}"; do
+    _dr_label="${IMAGE_LABELS[$_dr_ref]}"
+    _dr_rc=0
+    remove_single_image "$_dr_ref" "$_dr_label" || _dr_rc=$?
+    case "$_dr_rc" in
       0) ((removed++)) || true ;;
       1) ((skipped_not_present++)) || true ;;
-      2) IN_USE_IMAGES+=("$ref"); ((skipped_in_use++)) || true ;;
+      2) IN_USE_IMAGES+=("$_dr_ref"); ((skipped_in_use++)) || true ;;
       3) ((failed++)) || true ;;
     esac
   done
@@ -907,10 +931,10 @@ do_remove() {
     FORCE_REMOVE_LIST=()
     if show_force_remove_menu IN_USE_IMAGES; then
       section "Force Removing In-Use Images"
-      for ref in "${FORCE_REMOVE_LIST[@]}"; do
-        local label="${IMAGE_LABELS[$ref]}"
-        echo -ne "  Force removing ${BOLD}${label}${RESET} (${ref}) ... "
-        if podman rmi --force "$ref" > /dev/null 2>&1; then
+      for _dr_ref in "${FORCE_REMOVE_LIST[@]}"; do
+        _dr_label="${IMAGE_LABELS[$_dr_ref]}"
+        echo -ne "  Force removing ${BOLD}${_dr_label}${RESET} (${_dr_ref}) ... "
+        if podman rmi --force "$_dr_ref" > /dev/null 2>&1; then
           echo -e "${GREEN}removed${RESET}"
           ((removed++)) || true
           ((skipped_in_use--)) || true
@@ -955,18 +979,19 @@ do_remove_noninteractive() {
   local removed=0
   local skipped_not_present=0
   local failed=0
+  local _drn_ref _drn_label _drn_rc
 
-  for ref in "${SELECTED_LIST[@]}"; do
-    local label="${IMAGE_LABELS[$ref]}"
-    local rc=0
-    remove_single_image "$ref" "$label" || rc=$?
-    case "$rc" in
+  for _drn_ref in "${SELECTED_LIST[@]}"; do
+    _drn_label="${IMAGE_LABELS[$_drn_ref]}"
+    _drn_rc=0
+    remove_single_image "$_drn_ref" "$_drn_label" || _drn_rc=$?
+    case "$_drn_rc" in
       0) ((removed++)) || true ;;
       1) ((skipped_not_present++)) || true ;;
       2)
         # In-use: force-remove non-interactively
-        echo -ne "  Force removing ${BOLD}${label}${RESET} (${ref}) ... "
-        if podman rmi --force "$ref" > /dev/null 2>&1; then
+        echo -ne "  Force removing ${BOLD}${_drn_label}${RESET} (${_drn_ref}) ... "
+        if podman rmi --force "$_drn_ref" > /dev/null 2>&1; then
           echo -e "${GREEN}removed${RESET}"
           ((removed++)) || true
         else
