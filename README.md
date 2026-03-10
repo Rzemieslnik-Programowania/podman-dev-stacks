@@ -42,6 +42,20 @@ source ~/.bashrc   # or ~/.zshrc
 
 Then jump straight to [Quick Start](#quick-start).
 
+### Interactive install (choose which images to pull)
+
+If you want to select which images to install instead of pulling all 49, use `pds.sh`:
+
+```bash
+# From a cloned repo — launches interactive menu
+./pds.sh
+
+# Or as a one-liner with options
+curl -fsSL https://raw.githubusercontent.com/Rzemieslnik-Programowania/podman-dev-stacks/main/pds.sh | bash -s -- --no-pull
+```
+
+See [pds.sh](#pdssh--interactive-manager) for full documentation.
+
 ---
 
 ## 📋 Table of Contents
@@ -50,9 +64,11 @@ Then jump straight to [Quick Start](#quick-start).
 - [Repository Structure](#repository-structure)
 - [Quick Start](#quick-start)
 - [Scripts](#scripts)
+  - [pds.sh — Interactive Manager](#pdssh--interactive-manager)
   - [pull-images.sh](#pull-imagessh)
   - [new-project.sh](#new-projectsh)
   - [stack.sh](#stacksh)
+  - [update-images.sh](#update-imagessh)
 - [Stacks](#stacks)
   - [web-api](#-web-api)
   - [microservices](#-microservices)
@@ -93,10 +109,14 @@ podman compose version
 ```
 podman-dev-stacks/
 │
+├── pds.sh                    ← interactive manager (install / remove images)
+├── install.sh                ← one-liner installer (non-interactive)
+│
 ├── scripts/
-│   ├── pull-images.sh      ← pull all (or selected) images
-│   ├── new-project.sh      ← bootstrap a new project from a stack
-│   └── stack.sh            ← start / stop / clean stacks
+│   ├── pull-images.sh        ← pull all (or selected) images
+│   ├── update-images.sh      ← check and update images to latest versions
+│   ├── new-project.sh        ← bootstrap a new project from a stack
+│   └── stack.sh              ← start / stop / clean stacks
 │
 ├── stacks/
 │   ├── web-api/            ← Postgres + Redis + MailHog
@@ -117,14 +137,28 @@ podman-dev-stacks/
 
 ## Quick Start
 
-### Option A — One-liner (recommended)
+### Option A — One-liner (recommended, pulls all images)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Rzemieslnik-Programowania/podman-dev-stacks/main/install.sh | bash
 source ~/.bashrc   # or ~/.zshrc
 ```
 
-### Option B — Manual clone
+### Option B — Interactive (choose which images to pull)
+
+```bash
+git clone https://github.com/Rzemieslnik-Programowania/podman-dev-stacks.git
+cd podman-dev-stacks
+./pds.sh
+```
+
+This launches an interactive menu where you can:
+1. Select **Install** or **Remove**
+2. Toggle individual images on/off (all 49 selected by default)
+3. Toggle entire categories at once
+4. Confirm and execute
+
+### Option C — Manual clone
 
 ```bash
 git clone https://github.com/Rzemieslnik-Programowania/podman-dev-stacks.git
@@ -150,6 +184,64 @@ podman compose up -d
 ---
 
 ## Scripts
+
+### `pds.sh` — Interactive Manager
+
+The primary entry-point for managing Podman Dev Stacks images. Provides an interactive menu for installing (pulling) and removing images with per-image selection.
+
+```bash
+# Launch interactive menu
+./pds.sh
+
+# Go directly into remove mode
+./pds.sh --remove
+
+# Filter to specific categories
+./pds.sh --remove --categories databases,brokers
+
+# Install without pulling images (repo setup only)
+./pds.sh --no-pull
+```
+
+**Interactive menu controls:**
+
+| Input | Action |
+|---|---|
+| `1-49` | Toggle a single image on/off |
+| `a` | Select all images |
+| `n` | Unselect all images |
+| `d` / `b` / `w` / `t` / `o` / `u` / `q` / `i` / `r` | Toggle an entire category (Databases / Brokers / WebServers / DevTools / Observability / Auth / Testing / CICD / Runtimes) |
+| `c` | Confirm selection and proceed |
+| `x` | Cancel and return to main menu |
+
+**All options:**
+
+| Option | Description |
+|---|---|
+| `--dir <path>` | Install directory (default: `~/podman-dev-stacks`) |
+| `--no-pull` | Skip image pulling during install |
+| `--no-path` | Skip adding scripts to PATH |
+| `--remove` | Enter remove mode directly |
+| `--categories <list>` | Comma-separated category filter (e.g. `databases,runtimes`) |
+| `--help` | Show usage and exit |
+
+**Non-interactive mode (piped):**
+
+When piped (e.g. `curl ... | bash`), `pds.sh` automatically delegates to `install.sh` for backwards compatibility. With `--remove`, it removes all matching images without prompts:
+
+```bash
+# Piped install — same as using install.sh directly
+curl -fsSL .../pds.sh | bash
+
+# Piped remove — removes all database images non-interactively
+curl -fsSL .../pds.sh | bash -s -- --remove --categories databases
+```
+
+**Removing in-use images:**
+
+When removing images that are currently used by running containers, `pds.sh` shows which containers depend on each image and asks for explicit confirmation before force-removing. The force-remove prompt defaults to **No** for safety.
+
+---
 
 ### `pull-images.sh`
 
@@ -651,6 +743,3 @@ crontab -e
 # Add — runs every Sunday at 02:00, logs to file
 0 2 * * 0 /path/to/podman-dev-stacks/scripts/update-images.sh --prune --log ~/podman-update.log
 ```
-# podman-dev-stacks
-# podman-dev-stacks
-# podman-dev-stacks
