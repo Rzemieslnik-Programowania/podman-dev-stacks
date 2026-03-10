@@ -225,12 +225,14 @@ The primary entry-point for managing Podman Dev Stacks images. Provides an inter
 | `--categories <list>` | Comma-separated category filter (e.g. `databases,runtimes`) |
 | `--help` | Show usage and exit |
 
-**Non-interactive mode (piped):**
+**Piped usage (`curl | bash`):**
 
-When piped (e.g. `curl ... | bash`), `pds.sh` automatically delegates to `install.sh` for backwards compatibility. With `--remove`, it removes all matching images without prompts:
+When piped in a terminal (e.g. `curl ... | bash`), `pds.sh` detects the TTY and launches the interactive menu — the same experience as running `./pds.sh` locally. With `--remove`, it removes all matching images without prompts.
+
+If no TTY is available (e.g. in CI), `pds.sh` falls back to delegating to `install.sh` non-interactively.
 
 ```bash
-# Piped install — same as using install.sh directly
+# Piped install — interactive menu in a terminal
 curl -fsSL .../pds.sh | bash
 
 # Piped remove — removes all database images non-interactively

@@ -8,9 +8,10 @@
 #   bash pds.sh --categories databases — filter to specific categories
 #   bash pds.sh --help                 — show usage
 #
-# Non-interactive (piped):
-#   curl ... | bash -s --              — delegates to install.sh
+# Piped usage (curl | bash):
+#   curl ... | bash -s --              — interactive menu (if TTY available)
 #   curl ... | bash -s -- --remove     — removes all images without prompts
+#   Falls back to non-interactive install.sh if no TTY is available.
 # =============================================================================
 
 set -euo pipefail
@@ -252,6 +253,7 @@ NO_PULL=false
 NO_PATH=false
 MODE=""
 CATEGORIES_FILTER=""
+INPUT_SRC=""  # resolved in main() via resolve_tty; set -u catches premature use
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 usage() {
@@ -274,8 +276,8 @@ Examples:
   pds.sh --remove --categories databases    # remove only database images
   pds.sh --no-pull                          # install repo without pulling images
 
-Non-interactive (piped):
-  curl -fsSL .../pds.sh | bash              # delegates to install.sh
+Piped usage (curl | bash):
+  curl -fsSL .../pds.sh | bash              # interactive menu (if TTY available)
   curl -fsSL .../pds.sh | bash -s -- --remove  # removes all images
 EOF
 }
@@ -346,9 +348,21 @@ check_prerequisites() {
   fi
 }
 
-# ── Non-interactive detection ─────────────────────────────────────────────────
-is_interactive() {
-  [[ -t 0 ]]
+# ── TTY detection & input source ──────────────────────────────────────────────
+# Sets INPUT_SRC and returns 0 when interactive mode is possible, 1 otherwise.
+resolve_tty() {
+  if [[ -t 0 ]]; then
+    INPUT_SRC="/dev/stdin"
+    return 0
+  fi
+  if [[ -c /dev/tty && -r /dev/tty ]]; then
+    if exec 3</dev/tty 2>/dev/null; then
+      exec 3>&-
+      INPUT_SRC="/dev/tty"
+      return 0
+    fi
+  fi
+  return 1
 }
 
 # ── Category filter ───────────────────────────────────────────────────────────
@@ -412,7 +426,7 @@ show_main_menu() {
   echo ""
 
   local choice
-  read -rp "Select action [1-3]: " choice
+  read -rp "Select action [1-3]: " choice < "$INPUT_SRC"
   case "$choice" in
     1) MODE="install" ;;
     2) MODE="remove" ;;
@@ -464,7 +478,7 @@ show_image_selection_menu() {
     echo ""
 
     local _sim_input
-    read -rp "  > " _sim_input
+    read -rp "  > " _sim_input < "$INPUT_SRC"
 
     case "$_sim_input" in
       a) select_all ;;
@@ -513,7 +527,7 @@ show_confirmation() {
   echo ""
 
   local answer
-  read -rp "Proceed? [Y/n]: " answer
+  read -rp "Proceed? [Y/n]: " answer < "$INPUT_SRC"
   case "$answer" in
     ""|[Yy]|[Yy][Ee][Ss]) return 0 ;;
     *) return 1 ;;
@@ -564,7 +578,7 @@ show_force_remove_menu() {
     echo ""
 
     local _frm_input
-    read -rp "  > " _frm_input
+    read -rp "  > " _frm_input < "$INPUT_SRC"
 
     case "$_frm_input" in
       a)
@@ -593,7 +607,7 @@ show_force_remove_menu() {
         echo ""
         echo -e "${RED}${BOLD}Force remove ${_frm_fcount} image(s)? This will stop dependent containers.${RESET}"
         local _frm_answer
-        read -rp "Proceed? [y/N]: " _frm_answer
+        read -rp "Proceed? [y/N]: " _frm_answer < "$INPUT_SRC"
         case "$_frm_answer" in
           [Yy]|[Yy][Ee][Ss])
             FORCE_REMOVE_LIST=()
@@ -684,6 +698,15 @@ remove_single_image() {
   fi
 }
 
+# ── Run install.sh (local or remote) ─────────────────────────────────────────
+run_install_sh() {
+  if [[ -n "$SCRIPT_DIR" ]]; then
+    bash "$SCRIPT_DIR/install.sh" "$@"
+  else
+    curl -fsSL "${REPO_URL}/install.sh" | bash -s -- "$@"
+  fi
+}
+
 # ── Install action ────────────────────────────────────────────────────────────
 do_install() {
   # Build install.sh flags — always pass --no-pull so we control pulling
@@ -693,7 +716,7 @@ do_install() {
 
   section "Setting up repository"
   log "Running install.sh for repo setup and PATH configuration..."
-  bash "$SCRIPT_DIR/install.sh" "${install_args[@]}"
+  run_install_sh "${install_args[@]}"
 
   if [[ "$NO_PULL" == true ]]; then
     log "Skipping image pull (--no-pull)."
@@ -870,7 +893,7 @@ main() {
   init_selection
   apply_category_filter
 
-  if ! is_interactive; then
+  if ! resolve_tty; then
     if [[ "$MODE" == "remove" ]]; then
       do_remove_noninteractive
     else
@@ -880,14 +903,11 @@ main() {
       [[ "$NO_PULL" == true ]] && passthrough_args+=("--no-pull")
       [[ "$NO_PATH" == true ]] && passthrough_args+=("--no-path")
       log "Non-interactive mode detected. Delegating to install.sh..."
-      if [[ -n "$SCRIPT_DIR" ]]; then
-        bash "$SCRIPT_DIR/install.sh" "${passthrough_args[@]}"
-      else
-        curl -fsSL "${REPO_URL}/install.sh" | bash -s -- "${passthrough_args[@]}"
-      fi
+      run_install_sh "${passthrough_args[@]}"
     fi
     return
   fi
+  readonly INPUT_SRC
 
   # Interactive mode
   if [[ "$MODE" == "remove" ]]; then
