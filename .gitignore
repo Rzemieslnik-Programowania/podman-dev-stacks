@@ -16,3 +16,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+specs/
+plans/
+implementation-details/
